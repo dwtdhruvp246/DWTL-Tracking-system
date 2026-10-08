@@ -1,0 +1,3 @@
+# Handler verifies bearer token using getUser for both legacy and new signing keys.
+[functions.admin-users]
+verify_jwt = false
