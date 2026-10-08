@@ -1,11 +1,12 @@
 # Verification performed
 
-Verified on 2026-10-08. No Supabase project keys or live project were supplied, so hosted Auth, live Edge Function deployment and Cloudflare delivery were not tested. Finish the included live-project acceptance checklist before entering production data.
+Verified on 2026-10-08. A hosted first-admin attempt reported by the user exposed an Auth provisioning timing bug: custom app metadata arrives after the Auth user INSERT. The correction was tested against that transaction ordering in PostgreSQL; retrying bootstrap on the hosted project is still required. Hosted Edge Function deployment and Cloudflare delivery have not been tested. Finish the included live-project acceptance checklist before entering production data.
 
-## Database: 32 checks passed
+## Database: 35 checks passed
 
-All four SQL files executed in PostgreSQL through PGlite 0.5.8 with pgcrypto. The harness simulates Supabase's `auth.users`, JWT subject and database roles and executes the actual supplied RLS policies, functions and triggers. It covers:
+All setup and repair SQL files executed in PostgreSQL through PGlite 0.5.8 with pgcrypto. The harness simulates Supabase's `auth.users`, JWT subject and database roles and executes the actual supplied RLS policies, functions and triggers. It covers:
 
+- Auth Admin API INSERT followed by app metadata UPDATE provisions profiles at commit; forged user metadata and unprovisioned signups roll back. Repair migration is repeatable and was tested on both original and corrected SQL 03.
 - Temporary-password read blocking and verified distinct password change; rehashing the same temporary password cannot bypass the flag.
 - Read-only viewer and anonymous restrictions; profile self-promotion and non-admin profile-audit reads denied.
 - Own-draft marketing writes, confirmation lock, another marketer's ownership restriction and required/optional fields.

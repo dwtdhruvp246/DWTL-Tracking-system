@@ -4,15 +4,37 @@ import {readFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 const db=new PGlite({extensions:{pgcrypto}});let passed=0;
 await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;
-create table auth.users(id uuid primary key default gen_random_uuid(),encrypted_password text not null,raw_app_meta_data jsonb not null default '{}');
+create table auth.users(id uuid primary key default gen_random_uuid(),encrypted_password text not null,raw_app_meta_data jsonb not null default '{}',raw_user_meta_data jsonb not null default '{}');
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
 grant usage on schema auth to authenticated,anon,service_role;grant execute on function auth.uid() to authenticated,anon,service_role;`);
 for(const f of ['01_schema.sql','02_rls_policies.sql','03_views_triggers.sql']){await db.exec(await readFile('sql/'+f,'utf8'));console.log('Applied',f);}
 const query=async(sql,params=[])=> (await db.query(sql,params)).rows;
 const test=(label)=>{passed++;console.log('PASS',label);};
+// The upgrade must also be safe to apply to a corrected fresh installation.
+await db.exec(await readFile('sql/05_auth_provisioning_fix.sql','utf8'));
+await db.exec(await readFile('sql/05_auth_provisioning_fix.sql','utf8'));
+test('auth provisioning repair can be applied repeatedly');
 const ids={};for(const role of ['admin','marketing','production_head','production','inspection','warehouse','viewer']){
- const [u]=await query(`insert into auth.users(encrypted_password,raw_app_meta_data) values(extensions.crypt('Temporary123!',extensions.gen_salt('bf')), $1::jsonb) returning id`,[JSON.stringify({plant_provisioned:true,username:role,full_name:role,role,temporary_nonce:crypto.randomUUID()})]);ids[role]=u.id;
+ await db.exec('begin');
+ const [u]=await query(`insert into auth.users(encrypted_password,raw_app_meta_data) values(extensions.crypt('Temporary123!',extensions.gen_salt('bf')), '{"provider":"email","providers":["email"]}') returning id`);
+ assert.equal((await query('select * from public.profiles where id=$1',[u.id])).length,0);
+ // Match real Auth Admin API ordering: INSERT, then app metadata UPDATE.
+ await query('update auth.users set raw_app_meta_data=raw_app_meta_data||$1::jsonb where id=$2',[JSON.stringify({plant_provisioned:true,username:role,full_name:role,role,temporary_nonce:crypto.randomUUID()}),u.id]);
+ await db.exec('commit');
+ assert.equal((await query('select * from public.profiles where id=$1',[u.id])).length,1);
+ ids[role]=u.id;
 }
+test('Auth INSERT then metadata UPDATE provisions all roles at transaction commit');
+await db.exec('begin');
+let blocked;
+try {
+ await query(`insert into auth.users(encrypted_password,raw_user_meta_data) values(extensions.crypt('Attack123!',extensions.gen_salt('bf')), $1::jsonb)`,[JSON.stringify({plant_provisioned:true,username:'forgedadmin',full_name:'Forged Admin',role:'admin'})]);
+ await db.exec('commit');
+} catch(e) { blocked=e; await db.exec('rollback'); }
+assert.match(blocked?.message||'',/Public registration is disabled/);
+assert.equal((await query("select * from public.profiles where username='forgedadmin'")).length,0);
+assert.equal((await query("select * from auth.users where raw_user_meta_data->>'username'='forgedadmin'")).length,0);
+test('untrusted signup rolls back Auth user even with forged user metadata');
 await db.exec(await readFile('sql/04_seed.sql','utf8'));test('seed samples');
 async function as(role){await db.exec('reset role');await query("select set_config('request.jwt.claim.sub',$1,false)",[role?ids[role]:'']);await db.exec(`set role ${role?'authenticated':'anon'}`);}
 async function owner(){await db.exec('reset role');await query("select set_config('request.jwt.claim.sub','',false)");}
@@ -68,7 +90,11 @@ await owner();await query("select public.admin_profile_action($1,$2,null,false)"
 await as('production');assert.equal((await query('select * from public.orders')).length,0);await denied('insert into public.order_receipts(order_id,meters) values($1,1)',[o.id]);test('deactivation immediately blocks existing JWT identity');
 await owner();await query("select public.admin_profile_action($1,$2,'viewer',null)",[ids.admin,ids.marketing]);
 await as('marketing');assert.equal((await query('select public.get_my_role() role'))[0].role,'viewer');test('role changes take effect with old session');
-await owner();await query("update auth.users set encrypted_password=extensions.crypt('ResetTemp123!',extensions.gen_salt('bf')),raw_app_meta_data=raw_app_meta_data||jsonb_build_object('temporary_nonce','reset-1') where id=$1",[ids.viewer]);
+await owner();await db.exec('begin');
+await query("update auth.users set encrypted_password=extensions.crypt('ResetTemp123!',extensions.gen_salt('bf')) where id=$1",[ids.viewer]);
+await query("update auth.users set raw_app_meta_data=raw_app_meta_data||jsonb_build_object('temporary_nonce','reset-1') where id=$1",[ids.viewer]);
+assert.equal((await query('select must_change_password from public.profiles where id=$1',[ids.viewer]))[0].must_change_password,true);
+await db.exec('commit');
 await as('viewer');assert.equal((await query('select * from public.order_dashboard')).length,0);test('admin reset atomically locks data access');
 await owner();await query("update auth.users set encrypted_password=extensions.crypt('ResetTemp123!',extensions.gen_salt('bf')) where id=$1",[ids.viewer]);
 await as('viewer');await denied('select public.complete_password_change($1)',['ResetTemp123!']);test('rehashing same temporary password cannot bypass forced change');

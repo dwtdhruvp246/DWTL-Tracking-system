@@ -30,6 +30,7 @@ A static, responsive plant application with Supabase Auth, PostgreSQL RLS, immut
   sql/02_rls_policies.sql
   sql/03_views_triggers.sql
   sql/04_seed.sql
+  sql/05_auth_provisioning_fix.sql
   supabase/config.toml
   supabase/functions/admin-users/index.ts
   scripts/bootstrap-admin.mjs
@@ -45,9 +46,10 @@ Routes are `dashboard.html#dashboard`, `#orders`, `#order/UUID`, `#production`, 
 
 1. Create a **new project** on Supabase and retain its database password privately. This is a single-plant installation; use separate projects for independent plants.
 2. Open SQL Editor, paste the complete `sql/01_schema.sql` and run it. Then run `02_rls_policies.sql` and `03_views_triggers.sql`, in that order. Each file is transactional. These initial setup files are for a new schema; do not repeatedly run them against an existing installation. If a run fails, inspect the error and resolve it before proceeding.
-3. These files create the `pgcrypto` extension in `extensions` (the standard Supabase extension schema), the business tables, a non-exposed `private` schema, RLS, functions, triggers and a PostgreSQL 15+ security-invoker dashboard view. Keep the exposed Data API schemas at their defaults; **never expose `private`**.
-4. Do **not** run `04_seed.sql` yet. It includes sample orders and needs the first admin's profile for ownership. Once the admin is created in step 3 below, run it. It is optional and repeatable, with `DEMO-` POs; remove the sample orders by cancelling them, or use a separate project for testing.
-5. No bucket is created: no file-upload workflow was requested. All plant records are in PostgreSQL. Supabase remains the designated storage provider if attachments are added later.
+3. If you already ran the earlier SQL 03 and admin creation fails with "Public registration is disabled", run `sql/05_auth_provisioning_fix.sql` once, then retry the bootstrap script. New installations using the corrected SQL 03 already include this fix. Supabase Auth writes custom app metadata after inserting the user; provisioning therefore checks the final row through a deferred INSERT trigger at transaction end. Existing-user password resets retain their immediate update trigger.
+4. These files create the `pgcrypto` extension in `extensions` (the standard Supabase extension schema), the business tables, a non-exposed `private` schema, RLS, functions, triggers and a PostgreSQL 15+ security-invoker dashboard view. Keep the exposed Data API schemas at their defaults; **never expose `private`**.
+5. Do **not** run `04_seed.sql` yet. It includes sample orders and needs the first admin's profile for ownership. Once the admin is created in step 3 below, run it. It is optional and repeatable, with `DEMO-` POs; remove the sample orders by cancelling them, or use a separate project for testing.
+6. No bucket is created: no file-upload workflow was requested. All plant records are in PostgreSQL. Supabase remains the designated storage provider if attachments are added later.
 
 ## 2. Authentication settings — before creating users
 
