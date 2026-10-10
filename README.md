@@ -15,6 +15,7 @@ A static, responsive plant application with Supabase Auth, PostgreSQL RLS, immut
   config.js                        The only browser Supabase configuration
   _headers                         Cloudflare security/cache headers
   .gitignore
+  .assetsignore                    Excludes setup files from Worker asset uploads
   .nojekyll
   package.json                     Optional local source checks; no build script
   css/app.css
@@ -189,6 +190,15 @@ In Cloudflare Dashboard → Workers & Pages → create a Pages project → conne
 Deploy. Add the actual Cloudflare/custom domain to `ALLOWED_ORIGINS`. If Cloudflare initially generates a different domain, update the secret; admins cannot call the function from unlisted origins. `_headers` supplies security and caching headers on Pages. For a custom Supabase API domain, update the `connect-src` directive in `_headers` as well as `config.js`.
 
 This application uses hash routing, so no server rewrite or `_redirects` file is necessary. Git pushes update the site without a build. Supabase SQL changes and Edge Function deployments are separate operations.
+
+### If Cloudflare reports “Asset too large” for node_modules/workerd
+
+This happens when a **Workers** deployment uploads the repository root and includes tools installed in Cloudflare's build environment. The application is designed for **Pages**, with the settings above. From Workers & Pages, create an application, choose **Pages** (or the link to deploy a Pages site), import this GitHub repository, and use the table above. A Pages deployment does not need a Wrangler deploy command. You can leave the failed Worker project in place while setting up Pages.
+
+The root `.assetsignore` also excludes dependency folders, server/setup files, tests and documentation from Worker static-asset uploads if you use that deployment route. It preserves `index.html`, `dashboard.html`, `config.js`, `js/`, `css/` and `_headers`. This addresses the oversized-tool upload; the deployed site and Supabase function still need their separate setup and acceptance checks.
+
+After a successful deployment, use the actual HTTPS website origin (without a path or trailing slash) for Supabase's Site URL and the `admin-users` function's `ALLOWED_ORIGINS`. A custom domain is optional: Cloudflare supplies a `pages.dev` address.
+
 
 ## How permissions and flexible flow work
 

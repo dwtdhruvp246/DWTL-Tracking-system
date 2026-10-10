@@ -1,0 +1,21 @@
+# Worker static-asset uploads use the repository root. Ship browser files only.
+node_modules/
+.git/
+.wrangler/
+.env
+.env.*
+supabase/
+sql/
+scripts/
+tests/
+verification-output/
+README.md
+VERIFICATION.md
+package.json
+package-lock.json
+npm-shrinkwrap.json
+yarn.lock
+pnpm-lock.yaml
+.gitignore
+.nojekyll
+.DS_Store
